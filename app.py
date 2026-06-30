@@ -176,15 +176,22 @@ def scrape_paginated_thumbnails(base_url: str, page_template: str, num_pages: in
     """
     Scrape thumbnails across multiple paginated pages.
     Replaces {page} in page_template with 1, 2, 3, ...
+    Optimized for high page counts (thousands+).
     """
     all_candidates = []
     seen = set()
 
-    progress = st.progress(0, text="Scraping page 1...")
+    # For very high page counts, update progress less frequently to avoid UI lag
+    update_frequency = max(1, num_pages // 100)  # Update roughly every 1% of pages
+
+    progress = st.progress(0, text=f"Scraping page 1 of {num_pages}...")
 
     for i in range(1, num_pages + 1):
         page_url = page_template.replace("{page}", str(i))
-        progress.progress(i / num_pages, text=f"Scraping page {i} of {num_pages}...")
+
+        # Only update progress periodically for performance
+        if i % update_frequency == 0 or i == 1 or i == num_pages:
+            progress.progress(i / num_pages, text=f"Scraping page {i} of {num_pages}...")
 
         try:
             # Reuse the single-page logic but without its own max limit first
@@ -277,12 +284,23 @@ with tab_scrape:
         num_pages = 1
         page_template = target_url
         if use_pagination:
-            num_pages = st.slider("Number of pages to scrape", min_value=1, max_value=30, value=5, step=1)
+            num_pages = st.number_input(
+                "Number of pages to scrape",
+                min_value=1,
+                max_value=100000,
+                value=5,
+                step=1,
+                help="You can go up to 100,000 pages. Be careful — very high numbers will take hours and may get your connection blocked by the website."
+            )
             page_template = st.text_input(
                 "Page URL template — replace page number with {page}",
                 value=target_url,
                 help="Examples:\n• https://site.com/videos?page={page}\n• https://site.com/page{page}.html\n• https://site.com/videos/{page}"
             )
+            if num_pages > 100:
+                st.warning("⚠️ You selected more than 100 pages. This can take a very long time and may trigger rate limits or IP blocks on the target site.")
+            if num_pages > 1000:
+                st.error("🚨 Extremely high page count selected. Only proceed if you are sure the site can handle it and you have permission.")
             st.info("The tool will scrape page 1, page 2, ... up to the number you choose and combine all unique thumbnails.")
 
     col_btn1, col_btn2 = st.columns([1, 3])
@@ -298,7 +316,13 @@ with tab_scrape:
         if not target_url or not target_url.startswith(("http://", "https://")):
             st.error("Please enter a valid URL starting with http:// or https://")
         else:
-            with st.spinner("Scraping thumbnails..." if not use_pagination else f"Scraping {num_pages} pages..."):
+            spinner_text = "Scraping thumbnails..."
+            if use_pagination:
+                if num_pages > 50:
+                    spinner_text = f"Scraping {num_pages} pages (this may take a long time)..."
+                else:
+                    spinner_text = f"Scraping {num_pages} pages..."
+            with st.spinner(spinner_text):
                 start = time.time()
 
                 if use_pagination and 'page_template' in locals() and page_template:
