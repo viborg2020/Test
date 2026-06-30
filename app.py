@@ -619,9 +619,6 @@ with tab_match:
                             ])
                             st.dataframe(df, use_container_width=True, hide_index=True)
 
-            except Exception as e:
-                st.error(f"Error processing uploaded image: {e}")
-
 # Footer / Limitations
 st.divider()
 with st.expander("ℹ️ How it works & Limitations"):
