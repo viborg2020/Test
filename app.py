@@ -336,6 +336,8 @@ if "thumb_hashes" not in st.session_state:
     st.session_state.thumb_hashes = {}
 if "scraped_url" not in st.session_state:
     st.session_state.scraped_url = ""
+if "last_scraped_url" not in st.session_state:
+    st.session_state.last_scraped_url = ""
 
 # Layout
 tab_scrape, tab_match = st.tabs(["🔍 Scrape Website", "🖼️ Find Matches"])
@@ -500,9 +502,34 @@ with tab_match:
                 st.write(f"- Size: {query_img.size[0]} × {query_img.size[1]} px")
                 st.write(f"- Mode: {query_img.mode}")
 
+            # Target website input (allows searching without manually going to Scrape tab)
+            target_site = st.text_input(
+                "Website / Domain to search within",
+                value=st.session_state.get("last_scraped_url", ""),
+                placeholder="https://example.com or https://vimeo.com/channels/staffpicks",
+                help="Enter the site you want to search for similar images on. If nothing is scraped yet, it will scrape automatically."
+            )
+
             if st.button("🔎 Search this site for similar images", type="primary"):
+                # Auto-scrape if nothing is in session yet and user provided a URL
+                if not st.session_state.thumb_hashes and target_site:
+                    with st.spinner(f"Scraping {target_site} first..."):
+                        scraped_urls = scrape_thumbnails(target_site, max_images, min_dimension)
+                        if scraped_urls:
+                            # Quick hash computation for auto-scrape
+                            temp_hashes = {}
+                            for url in scraped_urls[:max_images]:
+                                phash, size = get_image_hash(url)
+                                if phash:
+                                    temp_hashes[url] = {"hash": phash, "size": size}
+                            st.session_state.thumb_hashes = temp_hashes
+                            st.session_state.last_scraped_url = target_site
+                            st.success(f"Auto-scraped {len(temp_hashes)} images from the site.")
+                        else:
+                            st.error("Could not scrape any images from that URL. Please try the Scrape tab with pagination options.")
+
                 if not st.session_state.thumb_hashes:
-                    st.error("Please scrape a website first in the Scrape tab!")
+                    st.error("Please enter a website URL above or go to the Scrape tab first.")
                 else:
                     with st.spinner("Analyzing images with AI..." if use_clip else "Computing similarity..."):
                         ranked = []
