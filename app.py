@@ -172,6 +172,38 @@ def scrape_thumbnails(base_url: str, max_images: int = 100, min_dimension: int =
         return []
 
 
+def scrape_paginated_thumbnails(base_url: str, page_template: str, num_pages: int, max_images: int, min_dimension: int):
+    """
+    Scrape thumbnails across multiple paginated pages.
+    Replaces {page} in page_template with 1, 2, 3, ...
+    """
+    all_candidates = []
+    seen = set()
+
+    progress = st.progress(0, text="Scraping page 1...")
+
+    for i in range(1, num_pages + 1):
+        page_url = page_template.replace("{page}", str(i))
+        progress.progress(i / num_pages, text=f"Scraping page {i} of {num_pages}...")
+
+        try:
+            # Reuse the single-page logic but without its own max limit first
+            page_candidates = scrape_thumbnails(page_url, max_images=5000, min_dimension=min_dimension)
+            for url in page_candidates:
+                if url not in seen:
+                    seen.add(url)
+                    all_candidates.append(url)
+                    if len(all_candidates) >= max_images:
+                        progress.empty()
+                        return all_candidates
+        except Exception as e:
+            st.warning(f"Could not scrape page {i} ({page_url}): {e}")
+            continue
+
+    progress.empty()
+    return all_candidates[:max_images]
+
+
 def compute_similarity(query_hash, target_hash) -> int:
     """Return Hamming distance (0 = identical / extremely similar)."""
     return query_hash - target_hash
@@ -240,6 +272,19 @@ with tab_scrape:
         help="Enter any public page that displays video thumbnails in its HTML source."
     )
 
+    with st.expander("📄 Pagination (for sites with page 1, page 2, page 3...)", expanded=False):
+        use_pagination = st.checkbox("Scrape multiple pages (pagination)", value=False)
+        num_pages = 1
+        page_template = target_url
+        if use_pagination:
+            num_pages = st.slider("Number of pages to scrape", min_value=1, max_value=30, value=5, step=1)
+            page_template = st.text_input(
+                "Page URL template — replace page number with {page}",
+                value=target_url,
+                help="Examples:\n• https://site.com/videos?page={page}\n• https://site.com/page{page}.html\n• https://site.com/videos/{page}"
+            )
+            st.info("The tool will scrape page 1, page 2, ... up to the number you choose and combine all unique thumbnails.")
+
     col_btn1, col_btn2 = st.columns([1, 3])
     with col_btn1:
         scrape_btn = st.button("🚀 Scrape & Analyze Thumbnails", type="primary", use_container_width=True)
@@ -253,9 +298,17 @@ with tab_scrape:
         if not target_url or not target_url.startswith(("http://", "https://")):
             st.error("Please enter a valid URL starting with http:// or https://")
         else:
-            with st.spinner(f"Fetching page and analyzing up to {max_images} images..."):
+            with st.spinner("Scraping thumbnails..." if not use_pagination else f"Scraping {num_pages} pages..."):
                 start = time.time()
-                candidate_urls = scrape_thumbnails(target_url, max_images, min_dimension)
+
+                if use_pagination and 'page_template' in locals() and page_template:
+                    candidate_urls = scrape_paginated_thumbnails(
+                        target_url, page_template, num_pages, max_images, min_dimension
+                    )
+                    display_url = f"{page_template} (pages 1–{num_pages})"
+                else:
+                    candidate_urls = scrape_thumbnails(target_url, max_images, min_dimension)
+                    display_url = target_url
 
                 if not candidate_urls:
                     st.warning("No candidate images found. The page might be heavily JavaScript-rendered or protected.")
@@ -275,9 +328,9 @@ with tab_scrape:
 
                     if hashes_dict:
                         st.session_state.thumb_hashes = hashes_dict
-                        st.session_state.scraped_url = target_url
+                        st.session_state.scraped_url = display_url
                         elapsed = time.time() - start
-                        st.success(f"✅ Successfully processed **{success_count}** thumbnails in {elapsed:.1f}s")
+                        st.success(f"✅ Successfully processed **{success_count}** thumbnails across pages in {elapsed:.1f}s")
                     else:
                         st.error("Could not download/analyze any images. Check URL or try another page.")
 
