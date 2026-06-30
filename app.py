@@ -216,21 +216,30 @@ def compute_similarity(query_hash, target_hash) -> int:
     return query_hash - target_hash
 
 
+def hamming_to_similarity(distance: int) -> float:
+    """Convert pHash Hamming distance to a similarity percentage (0-100%)."""
+    # pHash produces 64-bit hashes. Max distance is 64.
+    if distance <= 0:
+        return 100.0
+    similarity = max(0.0, 100 - (distance / 64.0 * 100))
+    return round(similarity, 1)
+
+
 # ---------------------------
 # Streamlit UI
 # ---------------------------
 
 st.set_page_config(
-    page_title="Video Thumbnail Matcher",
-    page_icon="🎥",
+    page_title="Site Reverse Image Search",
+    page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-st.title("🎥 Video Thumbnail Matcher")
+st.title("🔍 Site Reverse Image Search")
 st.markdown(
-    "Scrape thumbnails from any website and instantly find **exact** or **visually similar** matches "
-    "to your uploaded image using perceptual hashing (pHash)."
+    "Upload an image and find **visually similar or exact matching images** on any website — "
+    "like Google Reverse Image Search, but limited to one specific site or domain."
 )
 
 # Sidebar controls
@@ -423,9 +432,9 @@ with tab_match:
                         # Results header
                         st.divider()
                         m1, m2, m3 = st.columns(3)
-                        m1.metric("Exact Matches (dist=0)", len(exact_matches))
+                        m1.metric("Exact Matches", len(exact_matches))
                         m2.metric("Similar Matches", len(similar_matches))
-                        m3.metric("Total Compared", len(ranked))
+                        m3.metric("Images Analyzed", len(ranked))
 
                         # Exact matches
                         if exact_matches:
@@ -433,23 +442,25 @@ with tab_match:
                             ex_cols = st.columns(min(5, len(exact_matches)))
                             for i, match in enumerate(exact_matches[:5]):
                                 with ex_cols[i]:
-                                    st.image(match["url"], use_column_width=True,
-                                             caption=f"Exact | {match['size'][0]}×{match['size'][1]}")
+                                    st.image(match["url"], use_column_width=True)
+                                    st.caption("**100%** match (exact)")
                                     st.markdown(f"[🔗 Open full image]({match['url']})")
 
-                        # Similar matches grid
+                        # Similar matches grid (Google Images style)
                         if similar_matches:
-                            st.subheader(f"🔍 Similar Thumbnails (distance ≤ {max_distance})")
+                            st.subheader(f"🔍 Similar Images ({len(similar_matches)} found)")
                             sim_cols = st.columns(4)
                             for i, match in enumerate(similar_matches[:12]):
                                 with sim_cols[i % 4]:
-                                    st.image(match["url"], use_column_width=True,
-                                             caption=f"Dist: {match['distance']} | {match['size'][0]}×{match['size'][1]}")
+                                    similarity_pct = hamming_to_similarity(match["distance"])
+                                    st.image(match["url"], use_column_width=True)
+                                    st.caption(f"**{similarity_pct}%** similar  •  {match['size'][0]}×{match['size'][1]}")
                                     with st.popover("Details"):
-                                        st.write(f"**Distance:** {match['distance']} (lower = more similar)")
+                                        st.write(f"**Similarity:** {similarity_pct}%")
+                                        st.write(f"**Hamming Distance:** {match['distance']} (lower = better)")
                                         st.write(f"**Dimensions:** {match['size'][0]} × {match['size'][1]} px")
                                         st.code(match["url"], language=None)
-                                        st.markdown(f"[Open in new tab]({match['url']})")
+                                        st.markdown(f"[🔗 Open full image]({match['url']})")
                         elif not exact_matches:
                             st.warning(f"No matches found within distance ≤ {max_distance}. "
                                        "Try increasing the threshold in the sidebar or using a different reference image.")
