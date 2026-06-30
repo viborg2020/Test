@@ -1,0 +1,11 @@
+streamlit>=1.35
+requests>=2.31
+beautifulsoup4>=4.12
+Pillow>=10.0
+imagehash>=4.3
+lxml>=5.0
+pandas>=2.0
+torch>=2.0
+open-clip-torch>=2.20
+torchvision>=0.15
+numpy>=1.24
