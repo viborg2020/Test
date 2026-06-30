@@ -490,10 +490,31 @@ with tab_match:
         placeholder="https://example.com or https://vimeo.com/..."
     )
 
+    # Pagination options (moved to search tab for convenience)
+    with st.expander("📄 Pagination options (for sites with multiple pages)", expanded=False):
+        use_pagination_search = st.checkbox("Enable pagination", value=False)
+        num_pages_search = 1
+        page_template_search = target_site
+        if use_pagination_search:
+            num_pages_search = st.number_input(
+                "Number of pages to scrape",
+                min_value=1, max_value=1000, value=5, step=1
+            )
+            page_template_search = st.text_input(
+                "Page URL template (use {page})",
+                value=target_site
+            )
+
     if st.button("🔎 Search this site for similar images", type="primary"):
         if not st.session_state.thumb_hashes and target_site:
             with st.spinner(f"Scraping {target_site}..."):
-                scraped_urls = scrape_thumbnails(target_site, max_images, min_dimension)
+                if use_pagination_search and num_pages_search > 1:
+                    scraped_urls = scrape_paginated_thumbnails(
+                        target_site, page_template_search, num_pages_search, max_images, min_dimension
+                    )
+                else:
+                    scraped_urls = scrape_thumbnails(target_site, max_images, min_dimension)
+
                 if scraped_urls:
                     temp_hashes = {}
                     for url in scraped_urls[:max_images]:
