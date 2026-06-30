@@ -469,9 +469,9 @@ with tab_scrape:
 with tab_match:
     st.subheader("🔎 Search on Website")
 
-    # Use image uploaded in first tab
+    # Use image from first tab
     if "reference_image" not in st.session_state or st.session_state.reference_image is None:
-        st.warning("Please upload your reference image in the **📷 Your Reference Image** tab first.")
+        st.warning("Please go to the first tab (**📷 Your Reference Image**) and upload an image.")
         st.stop()
 
     query_img = st.session_state.reference_image
@@ -482,91 +482,53 @@ with tab_match:
         st.caption(f"Source: {query_source}")
 
     if not st.session_state.thumb_hashes:
-        st.info("Enter a website below — it will auto-scrape when you search.")
+        st.info("Enter a website below — the tool will scrape it automatically when you search.")
 
-        with col_upload:
-            uploaded_file = st.file_uploader(
-                "Upload image file",
-                type=["png", "jpg", "jpeg", "webp"],
-                help="Upload the image you want to search for"
-            )
+    target_site = st.text_input(
+        "Website to search within",
+        value=st.session_state.get("last_scraped_url", ""),
+        placeholder="https://example.com or https://vimeo.com/..."
+    )
 
-        with col_url:
-            image_url_input = st.text_input(
-                "Or paste image URL",
-                placeholder="https://example.com/image.jpg",
-                help="Direct link to an image on the web"
-            )
-
-        query_img = None
-        query_source = None
-
-        if uploaded_file:
-            try:
-                query_img = Image.open(uploaded_file)
-                query_source = "file"
-            except Exception as e:
-                st.error(f"Could not open uploaded file: {e}")
-
-        elif image_url_input:
-            try:
-                resp = requests.get(image_url_input, timeout=10, headers={"User-Agent": DEFAULT_USER_AGENT})
-                if resp.status_code == 200:
-                    query_img = Image.open(BytesIO(resp.content))
-                    query_source = "url"
+    if st.button("🔎 Search this site for similar images", type="primary"):
+        if not st.session_state.thumb_hashes and target_site:
+            with st.spinner(f"Scraping {target_site}..."):
+                scraped_urls = scrape_thumbnails(target_site, max_images, min_dimension)
+                if scraped_urls:
+                    temp_hashes = {}
+                    for url in scraped_urls[:max_images]:
+                        phash, size = get_image_hash(url)
+                        if phash:
+                            temp_hashes[url] = {"hash": phash, "size": size}
+                    st.session_state.thumb_hashes = temp_hashes
+                    st.session_state.last_scraped_url = target_site
+                    st.success(f"Auto-scraped {len(temp_hashes)} images.")
                 else:
-                    st.error("Could not download image from the URL provided.")
-            except Exception as e:
-                st.error(f"Error loading image from URL: {e}")
+                    st.error("Could not scrape images from that site.")
 
-        if query_img:
-            if query_img.mode != "RGB":
-                query_img = query_img.convert("RGB")
+        if not st.session_state.thumb_hashes:
+            st.error("No images available. Please enter a valid website URL above.")
+        else:
+            with st.spinner("Analyzing with AI..." if use_clip else "Comparing images..."):
+                ranked = []
 
-            # Show query
-            qcol1, qcol2 = st.columns([1, 2])
-            with qcol1:
-                st.image(query_img, caption="Your Reference Image", width=280)
-            with qcol2:
-                st.write("**Image info:**")
-                st.write(f"- Source: {query_source}")
-                st.write(f"- Size: {query_img.size[0]} × {query_img.size[1]} px")
-                st.write(f"- Mode: {query_img.mode}")
-
-            # Target website input (allows searching without manually going to Scrape tab)
-            target_site = st.text_input(
-                "Website / Domain to search within",
-                value=st.session_state.get("last_scraped_url", ""),
-                placeholder="https://example.com or https://vimeo.com/channels/staffpicks",
-                help="Enter the site you want to search for similar images on. If nothing is scraped yet, it will scrape automatically."
-            )
-
-            if st.button("🔎 Search this site for similar images", type="primary"):
-                # Auto-scrape if nothing is in session yet and user provided a URL
-                if not st.session_state.thumb_hashes and target_site:
-                    with st.spinner(f"Scraping {target_site} first..."):
-                        scraped_urls = scrape_thumbnails(target_site, max_images, min_dimension)
-                        if scraped_urls:
-                            # Quick hash computation for auto-scrape
-                            temp_hashes = {}
-                            for url in scraped_urls[:max_images]:
-                                phash, size = get_image_hash(url)
-                                if phash:
-                                    temp_hashes[url] = {"hash": phash, "size": size}
-                            st.session_state.thumb_hashes = temp_hashes
-                            st.session_state.last_scraped_url = target_site
-                            st.success(f"Auto-scraped {len(temp_hashes)} images from the site.")
-                        else:
-                            st.error("Could not scrape any images from that URL. Please try the Scrape tab with pagination options.")
-
-                if not st.session_state.thumb_hashes:
-                    st.error("Please enter a website URL above or go to the Scrape tab first.")
-                else:
-                    with st.spinner("Analyzing images with AI..." if use_clip else "Computing similarity..."):
-                        ranked = []
-
-                        if use_clip and CLIP_AVAILABLE:
-                            # === CLIP Semantic Search Mode ===
+                if use_clip and CLIP_AVAILABLE:
+                    # CLIP mode
+                    model, preprocess, _ = load_clip_model()
+                    if model is not None:
+                        query_emb = get_clip_embedding(query_img, model, preprocess)
+                        if query_emb is not None:
+                            for turl, data in st.session_state.thumb_hashes.items():
+                                img_emb = get_clip_embedding(turl, model, preprocess)
+                                if img_emb is not None:
+                                    sim = float(np.dot(query_emb, img_emb))
+                                    ranked.append({
+                                        "url": turl,
+                                        "similarity": sim,
+                                        "distance": 1 - sim,
+                                        "size": data["size"],
+                                        "is_clip": True
+                                    })
                             model, preprocess, _ = load_clip_model()
                             if model is None:
                                 st.error("CLIP model failed to load. Falling back to visual hash.")
