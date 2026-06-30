@@ -15,6 +15,15 @@ from PIL import Image, UnidentifiedImageError
 import imagehash
 from io import BytesIO
 import time
+import numpy as np
+
+# Optional CLIP imports (loaded only when needed)
+try:
+    import torch
+    import open_clip
+    CLIP_AVAILABLE = True
+except ImportError:
+    CLIP_AVAILABLE = False
 
 # ---------------------------
 # Configuration & Helpers
@@ -218,11 +227,48 @@ def compute_similarity(query_hash, target_hash) -> int:
 
 def hamming_to_similarity(distance: int) -> float:
     """Convert pHash Hamming distance to a similarity percentage (0-100%)."""
-    # pHash produces 64-bit hashes. Max distance is 64.
     if distance <= 0:
         return 100.0
     similarity = max(0.0, 100 - (distance / 64.0 * 100))
     return round(similarity, 1)
+
+
+@st.cache_resource(show_spinner="Loading AI model (CLIP)... This may take a minute on first use.")
+def load_clip_model():
+    """Load CLIP model for semantic image search. Uses a good balance of speed/quality."""
+    if not CLIP_AVAILABLE:
+        return None, None, None
+    try:
+        model, _, preprocess = open_clip.create_model_and_transforms(
+            'ViT-B-32', 
+            pretrained='openai',
+            device='cpu'  # Use CPU for broad compatibility
+        )
+        model.eval()
+        return model, preprocess, open_clip.get_tokenizer('ViT-B-32')
+    except Exception as e:
+        st.error(f"Failed to load CLIP model: {e}")
+        return None, None, None
+
+
+def get_clip_embedding(image_input, model, preprocess):
+    """Get CLIP image embedding for a PIL Image or image URL."""
+    if model is None or preprocess is None:
+        return None
+    try:
+        if isinstance(image_input, str):  # URL
+            resp = requests.get(image_input, timeout=8, headers={"User-Agent": DEFAULT_USER_AGENT})
+            img = Image.open(BytesIO(resp.content)).convert("RGB")
+        else:  # PIL Image
+            img = image_input.convert("RGB")
+
+        image_tensor = preprocess(img).unsqueeze(0)
+        with torch.no_grad():
+            embedding = model.encode_image(image_tensor)
+            embedding = embedding / embedding.norm(dim=-1, keepdim=True)  # Normalize
+        return embedding.squeeze().cpu().numpy()
+    except Exception as e:
+        return None
 
 
 # ---------------------------
@@ -262,6 +308,20 @@ with st.sidebar:
     if unlimited_scrape:
         max_images = 5000  # Effectively unlimited for practical purposes
         st.warning("Unlimited mode enabled — scraping may take longer and use more bandwidth.")
+
+    use_clip = False
+    if CLIP_AVAILABLE:
+        use_clip = st.checkbox(
+            "Use AI Semantic Search (CLIP) — Recommended",
+            value=True,
+            help="Much smarter matching using AI (understands content & context). Recommended for most use cases."
+        )
+        if use_clip:
+            st.success("AI Semantic Search enabled")
+            if len(st.session_state.get("thumb_hashes", {})) > 400:
+                st.warning("Large number of images detected. CLIP mode may be slow. Consider reducing 'Maximum thumbnails' or using Visual Hash mode for very large scrapes.")
+    else:
+        st.caption("💡 Install `torch` + `open-clip-torch` for powerful AI Semantic Search (CLIP)")
 
     min_dimension = st.slider("Minimum thumbnail size (px)", min_value=60, max_value=250, value=110, step=10,
                               help="Filters out small icons/logos")
@@ -388,46 +448,111 @@ with tab_match:
     else:
         st.caption(f"Comparing against **{len(st.session_state.thumb_hashes)}** thumbnails from: {st.session_state.scraped_url}")
 
-        uploaded_file = st.file_uploader(
-            "Upload your reference image (PNG, JPG, WEBP)",
-            type=["png", "jpg", "jpeg", "webp"],
-            help="The image you want to find matches for (e.g. a frame, logo, person, scene, etc.)"
-        )
+        st.markdown("**Your Reference Image**")
+        col_upload, col_url = st.columns(2)
+
+        with col_upload:
+            uploaded_file = st.file_uploader(
+                "Upload image file",
+                type=["png", "jpg", "jpeg", "webp"],
+                help="Upload the image you want to search for"
+            )
+
+        with col_url:
+            image_url_input = st.text_input(
+                "Or paste image URL",
+                placeholder="https://example.com/image.jpg",
+                help="Direct link to an image on the web"
+            )
+
+        query_img = None
+        query_source = None
 
         if uploaded_file:
             try:
                 query_img = Image.open(uploaded_file)
-                if query_img.mode != "RGB":
-                    query_img = query_img.convert("RGB")
+                query_source = "file"
+            except Exception as e:
+                st.error(f"Could not open uploaded file: {e}")
 
-                # Show query
-                qcol1, qcol2 = st.columns([1, 2])
-                with qcol1:
-                    st.image(query_img, caption="Your Reference Image", width=280)
-                with qcol2:
-                    st.write("**Image info:**")
-                    st.write(f"- Format: {query_img.format or 'Unknown'}")
-                    st.write(f"- Size: {query_img.size[0]} × {query_img.size[1]} px")
-                    st.write(f"- Mode: {query_img.mode}")
+        elif image_url_input:
+            try:
+                resp = requests.get(image_url_input, timeout=10, headers={"User-Agent": DEFAULT_USER_AGENT})
+                if resp.status_code == 200:
+                    query_img = Image.open(BytesIO(resp.content))
+                    query_source = "url"
+                else:
+                    st.error("Could not download image from the URL provided.")
+            except Exception as e:
+                st.error(f"Error loading image from URL: {e}")
 
-                if st.button("🔎 Find Exact & Similar Thumbnails", type="primary"):
-                    with st.spinner("Computing perceptual hash and comparing..."):
-                        query_hash = imagehash.phash(query_img)
+        if query_img:
+            if query_img.mode != "RGB":
+                query_img = query_img.convert("RGB")
 
-                        # Build ranked list
+            # Show query
+            qcol1, qcol2 = st.columns([1, 2])
+            with qcol1:
+                st.image(query_img, caption="Your Reference Image", width=280)
+            with qcol2:
+                st.write("**Image info:**")
+                st.write(f"- Source: {query_source}")
+                st.write(f"- Size: {query_img.size[0]} × {query_img.size[1]} px")
+                st.write(f"- Mode: {query_img.mode}")
+
+            if st.button("🔎 Search this site for similar images", type="primary"):
+                if not st.session_state.thumb_hashes:
+                    st.error("Please scrape a website first in the Scrape tab!")
+                else:
+                    with st.spinner("Analyzing images with AI..." if use_clip else "Computing similarity..."):
                         ranked = []
-                        for turl, data in st.session_state.thumb_hashes.items():
-                            dist = compute_similarity(query_hash, data["hash"])
-                            ranked.append({
-                                "url": turl,
-                                "distance": dist,
-                                "size": data["size"]
-                            })
 
-                        ranked.sort(key=lambda x: x["distance"])
+                        if use_clip and CLIP_AVAILABLE:
+                            # === CLIP Semantic Search Mode ===
+                            model, preprocess, _ = load_clip_model()
+                            if model is None:
+                                st.error("CLIP model failed to load. Falling back to visual hash.")
+                                use_clip = False
+                            else:
+                                query_emb = get_clip_embedding(query_img, model, preprocess)
+                                if query_emb is None:
+                                    st.error("Could not create embedding for your image.")
+                                else:
+                                    for turl, data in st.session_state.thumb_hashes.items():
+                                        img_emb = get_clip_embedding(turl, model, preprocess)
+                                        if img_emb is not None:
+                                            # Cosine similarity
+                                            sim = float(np.dot(query_emb, img_emb))
+                                            ranked.append({
+                                                "url": turl,
+                                                "similarity": sim,
+                                                "distance": 1 - sim,  # For compatibility
+                                                "size": data["size"],
+                                                "is_clip": True
+                                            })
+                        else:
+                            # === Traditional pHash Mode ===
+                            query_hash = imagehash.phash(query_img)
+                            for turl, data in st.session_state.thumb_hashes.items():
+                                dist = compute_similarity(query_hash, data["hash"])
+                                ranked.append({
+                                    "url": turl,
+                                    "distance": dist,
+                                    "size": data["size"],
+                                    "is_clip": False
+                                })
 
-                        exact_matches = [r for r in ranked if r["distance"] == 0]
-                        similar_matches = [r for r in ranked if 0 < r["distance"] <= max_distance]
+                        if not ranked:
+                            st.error("No images could be compared.")
+                        else:
+                            if use_clip:
+                                ranked.sort(key=lambda x: x["similarity"], reverse=True)  # Higher similarity first
+                                exact_matches = [r for r in ranked if r["similarity"] > 0.95]
+                                similar_matches = [r for r in ranked if 0.7 < r["similarity"] <= 0.95]
+                            else:
+                                ranked.sort(key=lambda x: x["distance"])
+                                exact_matches = [r for r in ranked if r["distance"] == 0]
+                                similar_matches = [r for r in ranked if 0 < r["distance"] <= max_distance]
 
                         # Results header
                         st.divider()
@@ -446,18 +571,32 @@ with tab_match:
                                     st.caption("**100%** match (exact)")
                                     st.markdown(f"[🔗 Open full image]({match['url']})")
 
-                        # Similar matches grid (Google Images style)
+                        # Results display - supports both pHash and CLIP modes
+                        is_clip_mode = use_clip and CLIP_AVAILABLE and any(r.get("is_clip") for r in ranked[:1])
+
                         if similar_matches:
                             st.subheader(f"🔍 Similar Images ({len(similar_matches)} found)")
                             sim_cols = st.columns(4)
                             for i, match in enumerate(similar_matches[:12]):
                                 with sim_cols[i % 4]:
-                                    similarity_pct = hamming_to_similarity(match["distance"])
+                                    if is_clip_mode:
+                                        sim_pct = round(match.get("similarity", 0) * 100, 1)
+                                        caption = f"**{sim_pct}%** semantic match"
+                                    else:
+                                        sim_pct = hamming_to_similarity(match["distance"])
+                                        caption = f"**{sim_pct}%** similar"
+
                                     st.image(match["url"], use_column_width=True)
-                                    st.caption(f"**{similarity_pct}%** similar  •  {match['size'][0]}×{match['size'][1]}")
+                                    st.caption(f"{caption} • {match['size'][0]}×{match['size'][1]}")
                                     with st.popover("Details"):
-                                        st.write(f"**Similarity:** {similarity_pct}%")
-                                        st.write(f"**Hamming Distance:** {match['distance']} (lower = better)")
+                                        if is_clip_mode:
+                                            st.write(f"**Semantic Similarity (AI):** {sim_pct}%")
+                                            visual_pct = hamming_to_similarity(match.get("distance", 64))
+                                            st.write(f"**Visual Similarity:** {visual_pct}%")
+                                            st.caption("Hybrid view: AI understands meaning + traditional visual match")
+                                        else:
+                                            st.write(f"**Visual Similarity:** {sim_pct}%")
+                                            st.write(f"**Hamming Distance:** {match['distance']} (lower = better)")
                                         st.write(f"**Dimensions:** {match['size'][0]} × {match['size'][1]} px")
                                         st.code(match["url"], language=None)
                                         st.markdown(f"[🔗 Open full image]({match['url']})")
