@@ -343,37 +343,60 @@ if "last_scraped_url" not in st.session_state:
 tab_scrape, tab_match = st.tabs(["📷 Your Reference Image", "🔎 Search on Website"])
 
 with tab_scrape:
-    st.subheader("Upload Your Reference Image")
-    st.caption("This is now Step 1 — upload the image you want to find matches for.")
-    target_url = st.text_input(
-        "Website URL containing video thumbnails",
-        placeholder="https://example.com/videos-page or https://vimeo.com/channels/staffpicks",
-        help="Enter any public page that displays video thumbnails in its HTML source."
-    )
+    st.subheader("📷 Upload Your Reference Image")
+    st.caption("Step 1: Upload the image you want to find similar images for (on any website).")
 
-    with st.expander("📄 Pagination (for sites with page 1, page 2, page 3...)", expanded=False):
-        use_pagination = st.checkbox("Scrape multiple pages (pagination)", value=False)
-        num_pages = 1
-        page_template = target_url
-        if use_pagination:
-            num_pages = st.number_input(
-                "Number of pages to scrape",
-                min_value=1,
-                max_value=100000,
-                value=5,
-                step=1,
-                help="You can go up to 100,000 pages. Be careful — very high numbers will take hours and may get your connection blocked by the website."
-            )
-            page_template = st.text_input(
-                "Page URL template — replace page number with {page}",
-                value=target_url,
-                help="Examples:\n• https://site.com/videos?page={page}\n• https://site.com/page{page}.html\n• https://site.com/videos/{page}"
-            )
-            if num_pages > 100:
-                st.warning("⚠️ You selected more than 100 pages. This can take a very long time and may trigger rate limits or IP blocks on the target site.")
-            if num_pages > 1000:
-                st.error("🚨 Extremely high page count selected. Only proceed if you are sure the site can handle it and you have permission.")
-            st.info("The tool will scrape page 1, page 2, ... up to the number you choose and combine all unique thumbnails.")
+    # Image upload section (moved to first tab for better flow)
+    col_upload, col_url = st.columns(2)
+
+    with col_upload:
+        uploaded_file = st.file_uploader(
+            "Upload image file",
+            type=["png", "jpg", "jpeg", "webp"],
+            key="ref_image_file"
+        )
+
+    with col_url:
+        image_url_input = st.text_input(
+            "Or paste image URL",
+            placeholder="https://example.com/photo.jpg",
+            key="ref_image_url"
+        )
+
+    query_img = None
+    query_source = None
+
+    if uploaded_file:
+        try:
+            query_img = Image.open(uploaded_file)
+            query_source = "Uploaded file"
+        except Exception as e:
+            st.error(f"Could not open uploaded file: {e}")
+
+    elif image_url_input:
+        try:
+            resp = requests.get(image_url_input, timeout=10, headers={"User-Agent": DEFAULT_USER_AGENT})
+            if resp.status_code == 200:
+                query_img = Image.open(BytesIO(resp.content))
+                query_source = "Image URL"
+            else:
+                st.error("Could not download the image from that URL.")
+        except Exception as e:
+            st.error(f"Error loading image from URL: {e}")
+
+    if query_img:
+        if query_img.mode != "RGB":
+            query_img = query_img.convert("RGB")
+
+        # Store in session state so second tab can access it
+        st.session_state.reference_image = query_img
+        st.session_state.reference_source = query_source
+
+        # Preview
+        st.image(query_img, caption="Your Reference Image", width=300)
+        st.success("Image ready. Go to the **Search on Website** tab to find matches.")
+    else:
+        st.info("Upload an image or paste an image URL above to begin.")
 
     col_btn1, col_btn2 = st.columns([1, 3])
     with col_btn1:
@@ -444,15 +467,22 @@ with tab_scrape:
                         st.caption(f"⚠️ Could not display: {url[:60]}...")
 
 with tab_match:
-    st.subheader("Search on Website")
+    st.subheader("🔎 Search on Website")
+
+    # Use image uploaded in first tab
+    if "reference_image" not in st.session_state or st.session_state.reference_image is None:
+        st.warning("Please upload your reference image in the **📷 Your Reference Image** tab first.")
+        st.stop()
+
+    query_img = st.session_state.reference_image
+    query_source = st.session_state.get("reference_source", "Uploaded")
+
+    with st.expander("Your Reference Image", expanded=False):
+        st.image(query_img, width=180)
+        st.caption(f"Source: {query_source}")
 
     if not st.session_state.thumb_hashes:
-        st.info("Enter a website URL below — the tool will automatically scrape it if needed.")
-    else:
-        st.caption(f"Comparing against **{len(st.session_state.thumb_hashes)}** images from: {st.session_state.get('last_scraped_url', st.session_state.scraped_url)}")
-
-        st.markdown("**Your Reference Image**")
-        col_upload, col_url = st.columns(2)
+        st.info("Enter a website below — it will auto-scrape when you search.")
 
         with col_upload:
             uploaded_file = st.file_uploader(
