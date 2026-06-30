@@ -340,10 +340,11 @@ if "last_scraped_url" not in st.session_state:
     st.session_state.last_scraped_url = ""
 
 # Layout
-tab_scrape, tab_match = st.tabs(["🔍 Scrape Website", "🖼️ Find Matches"])
+tab_scrape, tab_match = st.tabs(["📷 Your Reference Image", "🔎 Search on Website"])
 
 with tab_scrape:
-    st.subheader("Step 1: Scrape Video Thumbnails")
+    st.subheader("Upload Your Reference Image")
+    st.caption("This is now Step 1 — upload the image you want to find matches for.")
     target_url = st.text_input(
         "Website URL containing video thumbnails",
         placeholder="https://example.com/videos-page or https://vimeo.com/channels/staffpicks",
@@ -443,12 +444,12 @@ with tab_scrape:
                         st.caption(f"⚠️ Could not display: {url[:60]}...")
 
 with tab_match:
-    st.subheader("Step 2: Upload Reference Image & Find Matches")
+    st.subheader("Search on Website")
 
     if not st.session_state.thumb_hashes:
-        st.info("👆 Please scrape a website first in the **Scrape Website** tab.")
+        st.info("Enter a website URL below — the tool will automatically scrape it if needed.")
     else:
-        st.caption(f"Comparing against **{len(st.session_state.thumb_hashes)}** thumbnails from: {st.session_state.scraped_url}")
+        st.caption(f"Comparing against **{len(st.session_state.thumb_hashes)}** images from: {st.session_state.get('last_scraped_url', st.session_state.scraped_url)}")
 
         st.markdown("**Your Reference Image**")
         col_upload, col_url = st.columns(2)
