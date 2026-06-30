@@ -4,6 +4,29 @@ A lightweight, self-contained web tool that scrapes video thumbnails (or any ima
 
 Built with **Streamlit** + perceptual hashing (pHash via `imagehash`).
 
+> **This is already a web application.** It runs in your browser.  
+> Below you can deploy it for **free** so you can open it from any device with just a link (no installation needed).
+
+## 🚀 Deploy as a Public Web App (Recommended – Works in Any Browser)
+
+You can host this tool **for free** on Streamlit Community Cloud. Once deployed, you get a public URL like `https://yourname-video-thumbnail-matcher.streamlit.app` that you can open in any browser on any device (Mac, Windows, phone, etc.).
+
+### One-Time Setup (takes ~5–10 minutes)
+
+1. **Create a free GitHub account** (if you don't have one).
+2. Create a **new public repository** on GitHub and upload these files (or drag the whole folder).
+3. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
+4. Click **New app** → select your repository and `app.py` as the main file.
+5. Click **Deploy**.
+
+That's it! Streamlit will automatically install everything and give you a public link.
+
+Your app will be live and accessible from any browser. You can even share the link with others.
+
+**Free tier limits**: Apps sleep after inactivity but wake up quickly when you visit. Perfect for personal use.
+
+---
+
 ## Features
 
 - Scrape any public webpage for thumbnails using `<img>`, video `poster`, and social meta tags
@@ -13,22 +36,69 @@ Built with **Streamlit** + perceptual hashing (pHash via `imagehash`).
 - Clean grid + table results with direct links
 - Works entirely locally (your images never leave your computer)
 
-## 🚀 Easy Start for macOS (Mac Mini / MacBook)
+## 🚀 Easy Start for macOS (Mac Mini M1 / Apple Silicon)
 
-**Recommended method – just double-click:**
+**Best method for M1/M2/M3/M4 Macs (including macOS Tahoe):**
 
-1. Download and unzip this folder.
-2. Double-click the **`run.sh`** file (or right-click → Open).
-3. It will automatically:
-   - Create a Python virtual environment
-   - Install all dependencies
-   - Launch the app in your browser
+1. Download and unzip the folder.
+2. Find the file named **`Video_Thumbnail_Matcher.command`**
+3. **Double-click** it in Finder.
+4. If macOS shows a security warning:
+   - Right-click the file → choose **Open** (you may need to do this twice).
+5. A Terminal window will open, set everything up automatically, and launch the tool in your browser.
 
-> First run may take 1–2 minutes while it installs packages.
+> The first run can take 1–3 minutes while it installs Python packages. Subsequent launches are fast.
 
-If double-click doesn't work:
-- Right-click `run.sh` → **Open** (you may need to do this twice the first time for security).
-- Or open Terminal, `cd` into this folder, and run: `./run.sh`
+**If it still doesn't work:**
+
+**Option A – Quick fix in Terminal (copy & paste these lines one by one):**
+
+```bash
+cd ~/Downloads/thumbnail_matcher_app          # Adjust path if you unzipped elsewhere
+xattr -d com.apple.quarantine Video_Thumbnail_Matcher.command
+chmod +x Video_Thumbnail_Matcher.command
+./Video_Thumbnail_Matcher.command
+```
+
+**Option B – Install Python properly (recommended for Apple Silicon):**
+
+```bash
+# 1. Install Homebrew (if you don't have it)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 2. Install Python (native arm64 version)
+/opt/homebrew/bin/brew install python
+
+# 3. Then double-click Video_Thumbnail_Matcher.command again
+```
+
+This ensures you have the correct native Python for M1 chips instead of Rosetta/Intel version.
+
+---
+
+## 🍎 Create a Real Native macOS .app (Recommended for Best Experience)
+
+If you want a proper **Video Thumbnail Matcher.app** you can put in your Applications folder and launch like any other Mac program (supports Apple Silicon natively), use **Briefcase**:
+
+### On your Mac Mini, open Terminal and run:
+
+```bash
+cd ~/Downloads/thumbnail_matcher_app     # Change if you unzipped it elsewhere
+
+pip3 install briefcase
+
+briefcase create macOS
+briefcase build macOS
+briefcase run macOS          # Test it
+
+# To get a distributable .app:
+briefcase package macOS
+```
+
+You will end up with a real `Video Thumbnail Matcher.app` bundle.
+
+> The app opens the tool in a browser window (normal for Streamlit-based tools).  
+> This is currently the easiest way to get a native-feeling Mac application without rewriting the whole tool in Swift.
 
 ---
 

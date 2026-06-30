@@ -102,10 +102,11 @@ def is_likely_thumbnail(img_tag, abs_url: str, min_dimension: int = 100) -> bool
     return True
 
 
-def scrape_thumbnails(base_url: str, max_images: int = 40, min_dimension: int = 100):
+def scrape_thumbnails(base_url: str, max_images: int = 100, min_dimension: int = 100):
     """
     Fetch page, extract candidate image URLs that are likely video thumbnails.
-    Returns list of absolute image URLs.
+    Set max_images to a very high number (e.g. 5000) for unlimited scraping.
+    Returns list of absolute image URLs (capped by max_images).
     """
     candidates = []
     seen = set()
@@ -196,7 +197,24 @@ st.markdown(
 # Sidebar controls
 with st.sidebar:
     st.header("⚙️ Settings")
-    max_images = st.slider("Maximum thumbnails to scrape", min_value=5, max_value=80, value=35, step=5)
+    max_images = st.slider(
+        "Maximum thumbnails to scrape",
+        min_value=5,
+        max_value=1000,
+        value=100,
+        step=10,
+        help="Higher values scrape more images but can be slower. 100–300 is usually plenty. Use 500+ only if needed."
+    )
+
+    unlimited_scrape = st.checkbox(
+        "Scrape unlimited thumbnails (no limit)",
+        value=False,
+        help="⚠️ Warning: This can be very slow on pages with hundreds of images and may hit website rate limits."
+    )
+    if unlimited_scrape:
+        max_images = 5000  # Effectively unlimited for practical purposes
+        st.warning("Unlimited mode enabled — scraping may take longer and use more bandwidth.")
+
     min_dimension = st.slider("Minimum thumbnail size (px)", min_value=60, max_value=250, value=110, step=10,
                               help="Filters out small icons/logos")
     max_distance = st.slider("Similarity threshold (Hamming distance)", min_value=0, max_value=25, value=8, step=1,

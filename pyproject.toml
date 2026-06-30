@@ -1,0 +1,49 @@
+[project]
+name = "video-thumbnail-matcher"
+version = "1.0.0"
+description = "Scrape video thumbnails from websites and find exact or similar matches to your uploaded image using perceptual hashing."
+authors = [
+    {name = "Klar"}
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "streamlit>=1.35",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "Pillow>=10.0",
+    "imagehash>=4.3",
+    "lxml>=5.0",
+    "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "briefcase",
+]
+
+[tool.briefcase]
+project_name = "Video Thumbnail Matcher"
+bundle = "com.klar.videothumbnailmatcher"
+version = "1.0.0"
+description = "Find matching and similar video thumbnails from any website"
+license = "MIT"
+url = "https://github.com/yourname/video-thumbnail-matcher"
+
+[tool.briefcase.app.video-thumbnail-matcher]
+formal_name = "Video Thumbnail Matcher"
+description = "Scrape and match video thumbnails visually"
+icon = "resources/icon"
+sources = ["."]
+requires = [
+    "streamlit>=1.35",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "Pillow>=10.0",
+    "imagehash>=4.3",
+    "lxml>=5.0",
+    "pandas>=2.0",
+]
+# We launch Streamlit as a local web server + browser
+# Briefcase will bundle everything into a native .app
+console_app = false
